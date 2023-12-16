@@ -1,7 +1,7 @@
 import
     os, osproc, strutils, terminal
 
-const usage_text: string = "\ngin [options] PATTERN [PATH ...]\n\nValid options:\n-A,--after-context <arg>\tprints the given number of following lines for each match\n-B,--before-context <arg>\tprints the given number of preceding lines for each match\n-c,--color\t\t\tprints with colors, highlighting the matched phrase in the output\n-C,--context <arg>\t\tprints the number of preceding and following lines for each match.\n-h,--hidden\t\t\tsearch hidden files and folders\n   --help\t\t\tprints this message\n-i,--ignore-case\t\tsearch case insesitive\n   --no-heading\t\t\tprint a single line inclusing the filename for each match, instead of grouping matches by file"
+const usage_text: string = "\ngin [options] PATTERN [PATH ...]\n\nValid options:\n-A,--after-context <arg>\tprints the given number of following lines for each match\n-B,--before-context <arg>\tprints the given number of preceding lines for each match\n-c,--color\t\t\tprints with colors, highlighting the matched phrase in the output\n-C,--context <arg>\t\tprints the number of preceding and following lines for each match.\n-h,--hidden\t\t\tsearch hidden files and folders\n   --help\t\t\tprints this message\n-i,--ignore-case\t\tsearch case insesitive\n   --no-heading\t\t\tprint a single line inclusing the filename for each match, instead of grouping matches by file\n   --display-skipped-files\tinforms about skipped non-text files"
 #Read parameters
 var
     context_before: int = 0
@@ -10,6 +10,7 @@ var
     hidden_files: bool = false
     case_sensitive: bool = true
     heading: bool = true
+    display_skipped_files = false
     pattern: string = ""
     paths: seq[string]
 
@@ -26,8 +27,7 @@ let param_count: int = paramCount()
 if param_count < 1:
     printHelp("")
     quit()
-    #Switch the two lines above to the one below?
-    #printHelp("Incorrect syntax")
+
 let params: seq[string] = commandLineParams()
 var current_param_is_value = false # This variable signals if the i in the following loop is a value related to the prior parameter
 for i, p in params:
@@ -70,6 +70,8 @@ for i, p in params:
         case_sensitive = false
     of "--no-heading":
         heading = false
+    of "--display-skipped-files":
+        display_skipped_files = true
     else:
         if p.startsWith('-'):
             printHelp("Unknown parameter: " & params[i])
@@ -156,8 +158,8 @@ proc printResult(file: string, lines: seq[string], lineIndices: seq[int]) =
                     context_lines.add(i)
     
     echo "" # New line for better readability
-    if heading: # Presentation with heading
 
+    if heading: # Presentation with heading
         echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened
         for lineIndex in context_lines:
             if lineIndices.contains(lineIndex): # If line contains pattern
@@ -166,7 +168,6 @@ proc printResult(file: string, lines: seq[string], lineIndices: seq[int]) =
                 echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (lineIndex + 1), ansiForegroundColorCode(fgDefault), "-", lines[lineIndex]
 
     else: # Presentation without heading
-
         for lineIndex in context_lines:
             if lineIndices.contains(lineIndex): # If line contains pattern
                 echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (lineIndex + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(lines[lineIndex]) else: lines[lineIndex])
@@ -180,7 +181,8 @@ proc checkFile(file: string, pattern: string) =
     let output = execProcess("file --mime \"" & file & "\"")
     let output_seq = output.split(' ')
     if not output_seq[output_seq.len - 2].startsWith("text"): # The second to last block of this output starts with "text", if the file has text content
-        echo ansiForegroundColorCode(fgDefault), (if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file) & ansiForegroundColorCode(fgDefault) & " is not a text file or has no content. Skipped", ansiForegroundColorCode(fgDefault)
+        if display_skipped_files:
+            echo ansiForegroundColorCode(fgDefault), (if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file) & ansiForegroundColorCode(fgDefault) & " is not a text file or has no content. Skipped", ansiForegroundColorCode(fgDefault)
         return
 
     var indices: seq[int] # A squence of indices of the lines where the pattern has been found
