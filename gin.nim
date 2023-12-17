@@ -137,43 +137,51 @@ proc formatPatternInLine(line: string): string =
             formatted_text = formatted_text & substr(line, last_index)
         return formatted_text
 
-proc printResult(file: string, lines: seq[string], lineIndices: seq[int]) =
+
+proc printResult(file: string, line_count: int, line_indices: seq[int]) =
     let path_shortened = if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file
     
-    # Context_lines are all lines that will be printed
-    var context_lines: seq[int]
-    for lineIndex in lineIndices:
-        # Before context lines
-        if context_before > 0:
-            for i in lineindex - context_before .. lineIndex - 1:
-                if i >= 0 and not context_lines.contains(i):
-                    context_lines.add(i)
-        # The actual line with the pattern
-        if not context_lines.contains(lineIndex):
-            context_lines.add(lineIndex)
-        # After context lines
-        if context_after > 0:
-            for i in lineindex + 1 .. lineIndex + context_after:
-                if i < lines.len and not context_lines.contains(i):
-                    context_lines.add(i)
-    
+    # print_lines_indixes are all lines that will be printed (the lines with the pattern and the additional context)
+    var print_lines_indices: seq[int]
+    if context_before == 0 and context_after == 0: # If no context lines are expected the costly for loop in the "else block" can be skipped
+        print_lines_indices = line_indices
+    else:
+        for line_index in line_indices:
+            # Before context lines
+            if context_before > 0:
+                for i in line_index - context_before .. line_index - 1:
+                    if i >= 0 and not print_lines_indices.contains(i):
+                        print_lines_indices.add(i)
+            # The actual line with the pattern
+            if not print_lines_indices.contains(line_index):
+                print_lines_indices.add(line_index)
+            # After context lines
+            if context_after > 0:
+                for i in line_index + 1 .. line_index + context_after:
+                    if i < line_count and not print_lines_indices.contains(i):
+                        print_lines_indices.add(i)
+            
     echo "" # New line for better readability
-
-    if heading: # Presentation with heading
+    if heading:
         echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened
-        for lineIndex in context_lines:
-            if lineIndices.contains(lineIndex): # If line contains pattern
-                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (lineIndex + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(lines[lineIndex]) else: lines[lineIndex])
-            else: # If context line
-                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (lineIndex + 1), ansiForegroundColorCode(fgDefault), "-", lines[lineIndex]
 
-    else: # Presentation without heading
-        for lineIndex in context_lines:
-            if lineIndices.contains(lineIndex): # If line contains pattern
-                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (lineIndex + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(lines[lineIndex]) else: lines[lineIndex])
-            else: # If context line
-                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), "-", (if color: ansiForegroundColorCode(fgGreen) else: ""), (lineIndex + 1), ansiForegroundColorCode(fgDefault), "-", lines[lineIndex]
+    var line_index = 0 # The index of each line in the following loop
+    for line in lines file:
+        if print_lines_indices.contains(line_index): # Checks if the current line is to be printed
+
+            if heading: # Presentation with heading
+                if line_indices.contains(line_index): # If line contains pattern
+                    echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
+                else: # If context line
+                    echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
+
+            else: # Presentation without heading
+                if line_indices.contains(line_index): # If line contains pattern
+                    echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
+                else: # If context line
+                    echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), "-", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
         
+        line_index = line_index + 1
 
 # Checks if the file has the pattern in its content
 proc checkFile(file: string, pattern: string) =
@@ -184,15 +192,15 @@ proc checkFile(file: string, pattern: string) =
         if display_skipped_files:
             echo ansiForegroundColorCode(fgDefault), (if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file) & ansiForegroundColorCode(fgDefault) & " is not a text file or has no content. Skipped", ansiForegroundColorCode(fgDefault)
         return
-
     var indices: seq[int] # A squence of indices of the lines where the pattern has been found
-    let lines = readFile(file).splitLines()
-    for i, line in lines:
+
+    var line_index = 0 # The index of each line in the following loop
+    for line in lines file:
         if contains(if case_sensitive: line else: toLowerAscii(line), if case_sensitive: pattern else: toLowerAscii(pattern)):
-            indices.add(i)
-    
+            indices.add(line_index)
+        line_index = line_index + 1
     if indices.len > 0:
-        printResult(file, lines, indices)
+        printResult(file, line_index, indices) # line_index is the amount of lines of the file
     
 
 # Browse the provided files and directories recursively
