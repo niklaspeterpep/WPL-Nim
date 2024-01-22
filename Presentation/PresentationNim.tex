@@ -1,0 +1,133 @@
+\documentclass{beamer}
+\usetheme{Berlin}
+\title{Nim}
+\subtitle{Workshop: Programming Languages}
+\author{Niklas Peter}
+\institute{Universität Siegen}
+\date{5. Februar 2024}
+    
+\begin{document}
+
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Inhalt}
+\tableofcontents
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Allgemeines}
+\section{Allgemeines}
+\begin{itemize}
+	\item Andreas Rumpf startete 2005 die Entwicklung
+	\item Veröffentlichung in 2008 unter MIT Lizenz
+	\item Version 1.0 kam am 23.09.2019 raus
+	\item Soll effizient, ausdrucksvoll und elegant sein
+	\item Generiert native ausführbare Programme ohne Abhängigkeiten
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Design}
+\section{Design}
+\begin{itemize}
+	\item Syntax inspiriert von Python (Einrückung, Schlüsselwörter)
+	\item Style-Insensitive für Mischung verschiedener Stile
+	
+	\emph{ein\_beispiel} und \emph{einBeispiel} sind gleich
+	\item Statische Typisierung aber mit einfacher Typumwandlung
+	\item Uniform Function Call Syntax (UFCS)
+	
+	\emph{x = multiply(y, z)} entspricht \emph{x = y.multiply(z)}
+	\item Programmierungsparadigmen
+	\begin{itemize}
+		\item Funktionale Programmierung
+		\item Objektorientierte Programmierung
+		\item Metaprogrammierung
+		\item Foreign Function Interface (FFI)
+		\item Parallelisierung und Nebenläufigkeit
+	\end{itemize}
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Infrastruktur}
+\section{Infrastruktur}
+\begin{itemize}
+	\item Kompilierer
+	\begin{itemize}
+		\item Vollständig in Nim geschrieben
+		\item Gibt optimierten C Code aus. Kompilierung zu C++, Objective-C und JavaScript ebenfalls möglich
+		\item Objektcode durch externen Kompilierer wie GCC
+		\item Verschiedene Garbage Collectors verfügbar
+	\end{itemize}
+	\item Entwicklungswerkzeuge (Auswahl)
+	\begin{itemize}
+		\item Nim's Paketmanager Nimble
+		\item Nimsuggest zur Integration in IDEs
+		\item Hot code reloading zum Neuladen des Codes zur Laufzeit
+	\end{itemize}
+	\item Bibliotheken
+	\begin{itemize}
+		\item Pure und Impure Bibliotheken
+		\item Standardbibliothek mit grundlegenden Funktionen vollständig in Nim
+		\item Einbindung von Bibliotheken in C, C++, Objective-C und JavaScript möglich
+	\end{itemize}
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Anwendungsfälle}
+\section{Anwendungsfälle}
+Viele Einsatzmöglichkeiten durch Kompilierung nach C, C++ und JavaScript:
+\begin{itemize}
+	\item Shell Scripting
+	\item Front- und Backend für Webdienste
+	\item Machine Learning
+	\item Eingebettete Systeme
+\end{itemize}
+
+Prominentes Beispiel ist \textbf{nitter}, ein Frontend für X (Twitter)
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Stärken und Schwächen}
+\section{Stärken und Schwächen}
+\begin{itemize}
+	\item Einfache und flexible Syntax
+	\item Moderne Konzepte
+	\item Viele Anwendungsbereiche
+	\item Nicht für alles eine native Bibliothek vorhanden, dafür aber Import von Bibliotheken in anderen Sprachen möglich
+	\item Gute Dokumentation
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Implementierung}
+\section{Implementierung}
+\begin{itemize}
+	\item Punkt
+\end{itemize}
+\end{frame}
+
+\appendix
+
+\begin{frame}
+\frametitle{Vielen Dank für Ihre Aufmerksamkeit!}
+Fragen?
+\end{frame}
+
+
+\end{document}
+
+
