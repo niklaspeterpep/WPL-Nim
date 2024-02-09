@@ -1,7 +1,9 @@
 import
-    os, osproc, strutils, terminal
+    os, osproc, sets, strutils, terminal, regex
 
 const usage_text: string = "\ngin [options] PATTERN [PATH ...]\n\nValid options:\n-A,--after-context <arg>\tprints the given number of following lines for each match\n-B,--before-context <arg>\tprints the given number of preceding lines for each match\n-c,--color\t\t\tprints with colors, highlighting the matched phrase in the output\n-C,--context <arg>\t\tprints the number of preceding and following lines for each match.\n-h,--hidden\t\t\tsearch hidden files and folders\n   --help\t\t\tprints this message\n-i,--ignore-case\t\tsearch case insesitive\n   --no-heading\t\t\tprint a single line inclusing the filename for each match, instead of grouping matches by file\n   --display-skipped-files\tinforms about skipped non-text files"
+const buffer_size = 4096 # amount of lines the buffer can hold
+
 #Read parameters
 var
     context_before: int = 0
@@ -11,8 +13,16 @@ var
     case_sensitive: bool = true
     heading: bool = true
     display_skipped_files = false
-    pattern: string = ""
+    pattern: Regex2
+    pattern_string: string = ""
     paths: seq[string]
+    lines_printed: seq[int] # a sequence of lines already printed
+    heading_printed: bool = false # if a heading has been printed for the current file already
+
+var buffer_count = 0 # how many buffers the current file used yet
+var buffer_index = 0 # index of the current line in the buffer
+var line_buffer: array[buffer_size, string]
+var marked_after_context_lines: int # the amount of after context lines marked for printing
 
 let working_directory = getAppDir()
 
@@ -80,7 +90,7 @@ for i, p in params:
                 current_param_is_value = false
                 continue
 
-            pattern = params[i]
+            pattern_string = params[i]
 
             if i + 1 < param_count: # Every parameter after the pattern is considered a file or directory to be searched
                 paths = params[i + 1 ..< param_count]
@@ -94,8 +104,9 @@ for i, p in params:
                         printHelp(paths[i] & " does not exist.")
 
             break # After the pattern (and paths) were found, the loop should stop
-if pattern.len < 1: # Check if pattern was provided
+if pattern_string.len < 1: # Check if pattern was provided
     printHelp("No pattern provided.")
+pattern = re2(if pattern_string.contains('('): pattern_string else: "(" & pattern_string & ")")
 if paths.len < 1: # If no file or directory to be searched is provided, the current directory shall be used instead
     paths.add(getAppDir())
 
@@ -110,81 +121,69 @@ proc isHiddenFile(file: string): bool =
         return true
     return false
 
-proc findIndices(line: string): seq[int] =
-    var indices: seq[int]
-    for i in 0 .. line.len - pattern.len:
-        if pattern == substr(line, i, i + pattern.len - 1):
-            indices.add(i)
-    return indices
 
 proc formatPatternInLine(line: string): string =
-    if case_sensitive:
-        return replace(line, pattern, by = ansiForegroundColorCode(fgRed) & pattern & ansiForegroundColorCode(fgDefault))
-    else:
-        let indices = findIndices(toLowerAscii(line))
-        var formatted_text: string
-        var last_index = 0
-        if indices.len < 1:
-            return "Error"
-        for index in indices:
-            if index == 0: # If pattern found right at the start
-                formatted_text = ansiForegroundColorCode(fgRed) & substr(line, index, index + pattern.len - 1) & ansiForegroundColorCode(fgDefault)
-                last_index = pattern.len
-                continue
-            formatted_text = formatted_text & substr(line, last_index, index - 1) & ansiForegroundColorCode(fgRed) & substr(line, index, index + pattern.len - 1) & ansiForegroundColorCode(fgDefault)
-            last_index = index + pattern.len
-        if indices[indices.len - 1] < line.len - pattern.len: # If there is still text after the last pattern
-            formatted_text = formatted_text & substr(line, last_index)
-        return formatted_text
+    return line.replace(pattern, ansiForegroundColorCode(fgRed) & "$#" & ansiForegroundColorCode(fgDefault))
 
+# Prints the line
+proc printLine(line_index: int, line: string, path: string) =
+    if heading and not heading_printed:
+        echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault)
+        heading_printed = true
 
-proc printResult(file: string, line_count: int, line_indices: seq[int]) =
-    let path_shortened = if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file
-    
-    # print_lines_indixes are all lines that will be printed (the lines with the pattern and the additional context)
-    var print_lines_indices: seq[int]
-    if context_before == 0 and context_after == 0: # If no context lines are expected the costly for loop in the "else block" can be skipped
-        print_lines_indices = line_indices
-    else:
-        for line_index in line_indices:
-            # Before context lines
+    if not lines_printed.contains(line_index):
+        if heading: # Presentation with heading
+            if regex.contains(line, pattern): # If line contains pattern
+                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
+            else: # If context line
+                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
+
+        else: # Presentation without heading
+            if regex.contains(line, pattern): # If line contains pattern
+                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
+            else: # If context line
+                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault), "-", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
+
+        lines_printed.add(line_index)
+
+proc checkBuffer(path: string) =
+    # Check lines in buffer for the pattern
+    for i, bf in line_buffer[0 .. buffer_index]: # i=loopindex, bf=bufferline
+        # print after context lines marked in a past loop cycle
+        if marked_after_context_lines > 0 and i < buffer_size and bf.len > 0:
+            printLine(i + (buffer_size * buffer_count), bf, path)
+            marked_after_context_lines -= 1
+
+        # if line contains regex
+        if not lines_printed.contains(i) and regex.contains(bf, pattern):
+            # if before context lines are requested
             if context_before > 0:
-                for i in line_index - context_before .. line_index - 1:
-                    if i >= 0 and not print_lines_indices.contains(i):
-                        print_lines_indices.add(i)
-            # The actual line with the pattern
-            if not print_lines_indices.contains(line_index):
-                print_lines_indices.add(line_index)
-            # After context lines
-            if context_after > 0:
-                for i in line_index + 1 .. line_index + context_after:
-                    if i < line_count and not print_lines_indices.contains(i):
-                        print_lines_indices.add(i)
+                # if context lines are not in the current buffer
+                if i - context_before < 0:
+                    # old buffer (there is only one buffer so old buffer refers to the elements at the end of the buffer where the values of "the old buffer" are still)
+                    if buffer_count > 0: # checks if there even is an old buffer
+                        for j, cl in line_buffer[buffer_size + (i - context_before) .. buffer_size - 1]: # j=loopindex, cl=contextline
+                            printLine(i - context_before + j + (buffer_size * buffer_count), cl, path)
+                    # current buffer
+                    for j, cl in line_buffer[max(i - context_before, 0) .. i - 1]: # j=loopindex, cl=contextline
+                        printLine(i - context_before + j + (buffer_size * buffer_count), cl, path)
+                    
+                # if context lines are only in the current buffer
+                else:
+                    # print context lines
+                    for j, cl in line_buffer[i - context_before .. i - 1]: # j=loopindex, cl=contextline
+                        printLine(i - context_before + j + (buffer_size * buffer_count), cl, path)
             
-    echo "" # New line for better readability
-    if heading:
-        echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened
+            # Print the current line (with the pattern)
+            printLine(i + (buffer_size * buffer_count), bf, path)
 
-    var line_index = 0 # The index of each line in the following loop
-    for line in lines file:
-        if print_lines_indices.contains(line_index): # Checks if the current line is to be printed
+            # if after context lines are requested
+            if context_after > 0:
+                marked_after_context_lines = context_after
 
-            if heading: # Presentation with heading
-                if line_indices.contains(line_index): # If line contains pattern
-                    echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
-                else: # If context line
-                    echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
-
-            else: # Presentation without heading
-                if line_indices.contains(line_index): # If line contains pattern
-                    echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
-                else: # If context line
-                    echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path_shortened, ansiForegroundColorCode(fgDefault), "-", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
-        
-        line_index = line_index + 1
 
 # Checks if the file has the pattern in its content
-proc checkFile(file: string, pattern: string) =
+proc checkFile(file: string, pattern: Regex2) =
     # Check if the provided file is a text file
     let output = execProcess("file --mime \"" & file & "\"")
     let output_seq = output.split(' ')
@@ -192,15 +191,24 @@ proc checkFile(file: string, pattern: string) =
         if display_skipped_files:
             echo ansiForegroundColorCode(fgDefault), (if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file) & ansiForegroundColorCode(fgDefault) & " is not a text file or has no content. Skipped", ansiForegroundColorCode(fgDefault)
         return
-    var indices: seq[int] # A squence of indices of the lines where the pattern has been found
 
-    var line_index = 0 # The index of each line in the following loop
+    let path_shortened = if file.startsWith(working_directory): substr(file, working_directory.len + 1) else: file
+    heading_printed = false
+    marked_after_context_lines = 0
+
     for line in lines file:
-        if contains(if case_sensitive: line else: toLowerAscii(line), if case_sensitive: pattern else: toLowerAscii(pattern)):
-            indices.add(line_index)
-        line_index = line_index + 1
-    if indices.len > 0:
-        printResult(file, line_index, indices) # line_index is the amount of lines of the file
+        # write into the buffer
+        line_buffer[buffer_index] = line
+        # check if buffer is full
+        if buffer_index == buffer_size - 1:
+            checkBuffer(path_shortened)
+
+            # new buffer
+            buffer_count += 1
+            buffer_index = 0
+        
+        buffer_index += 1
+    checkBuffer(path_shortened)
     
 
 # Browse the provided files and directories recursively
