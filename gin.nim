@@ -22,6 +22,7 @@ var
 var buffer_count = 0 # how many buffers the current file used yet
 var buffer_index = 0 # index of the current line in the buffer
 var line_buffer: array[buffer_size, string]
+var line_count = 0 # the amount of scanned lines in the file
 var marked_after_context_lines: int # the amount of after context lines marked for printing
 
 let working_directory = getAppDir()
@@ -127,35 +128,37 @@ proc formatPatternInLine(line: string): string =
 
 # Prints the line
 proc printLine(line_index: int, line: string, path: string) =
+    let absolute_line_index = line_index + (buffer_size * buffer_count) #line_index is just the index in the buffer whereas absolute_line_index is the index of the line in the file
     if heading and not heading_printed:
         echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault)
         heading_printed = true
 
-    if not lines_printed.contains(line_index):
+    if not lines_printed.contains(absolute_line_index):
         if heading: # Presentation with heading
             if regex.contains(line, pattern): # If line contains pattern
-                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
+                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (absolute_line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
             else: # If context line
-                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
+                echo (if color: ansiForegroundColorCode(fgGreen) else: ""), (absolute_line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
 
         else: # Presentation without heading
             if regex.contains(line, pattern): # If line contains pattern
-                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
+                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault), ":", (if color: ansiForegroundColorCode(fgGreen) else: ""), (absolute_line_index + 1), ansiForegroundColorCode(fgDefault), ":", (if color: formatPatternInLine(line) else: line)
             else: # If context line
-                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault), "-", (if color: ansiForegroundColorCode(fgGreen) else: ""), (line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
+                echo (if color: ansiForegroundColorCode(fgMagenta) else: ""), path, ansiForegroundColorCode(fgDefault), "-", (if color: ansiForegroundColorCode(fgGreen) else: ""), (absolute_line_index + 1), ansiForegroundColorCode(fgDefault), "-", line
 
-        lines_printed.add(line_index)
+        lines_printed.add(absolute_line_index)
 
 proc checkBuffer(path: string) =
     # Check lines in buffer for the pattern
     for i, bf in line_buffer[0 .. buffer_index]: # i=loopindex, bf=bufferline
         # print after context lines marked in a past loop cycle
         if marked_after_context_lines > 0 and i < buffer_size and bf.len > 0:
-            printLine(i + (buffer_size * buffer_count), bf, path)
-            marked_after_context_lines -= 1
+            if i + (buffer_size * buffer_count) < line_count: # prevents a line from the buffer to be read if there is no actual line in the file anymore (end of file)
+                printLine(i, bf, path)
+                marked_after_context_lines -= 1
 
         # if line contains regex
-        if not lines_printed.contains(i) and regex.contains(bf, pattern):
+        if not lines_printed.contains(i + (buffer_size * buffer_count)) and regex.contains(bf, pattern):
             # if before context lines are requested
             if context_before > 0:
                 # if context lines are not in the current buffer
@@ -163,19 +166,19 @@ proc checkBuffer(path: string) =
                     # old buffer (there is only one buffer so old buffer refers to the elements at the end of the buffer where the values of "the old buffer" are still)
                     if buffer_count > 0: # checks if there even is an old buffer
                         for j, cl in line_buffer[buffer_size + (i - context_before) .. buffer_size - 1]: # j=loopindex, cl=contextline
-                            printLine(i - context_before + j + (buffer_size * buffer_count), cl, path)
+                            printLine(i - context_before + j, cl, path)
                     # current buffer
                     for j, cl in line_buffer[max(i - context_before, 0) .. i - 1]: # j=loopindex, cl=contextline
-                        printLine(i - context_before + j + (buffer_size * buffer_count), cl, path)
+                        printLine(j, cl, path)
                     
                 # if context lines are only in the current buffer
                 else:
                     # print context lines
                     for j, cl in line_buffer[i - context_before .. i - 1]: # j=loopindex, cl=contextline
-                        printLine(i - context_before + j + (buffer_size * buffer_count), cl, path)
+                        printLine(i - context_before + j, cl, path)
             
             # Print the current line (with the pattern)
-            printLine(i + (buffer_size * buffer_count), bf, path)
+            printLine(i, bf, path)
 
             # if after context lines are requested
             if context_after > 0:
@@ -197,6 +200,7 @@ proc checkFile(file: string, pattern: Regex2) =
     marked_after_context_lines = 0
 
     for line in lines file:
+        line_count += 1
         # write into the buffer
         line_buffer[buffer_index] = line
         # check if buffer is full
@@ -206,7 +210,8 @@ proc checkFile(file: string, pattern: Regex2) =
             # new buffer
             buffer_count += 1
             buffer_index = 0
-        
+            continue
+
         buffer_index += 1
     checkBuffer(path_shortened)
     
